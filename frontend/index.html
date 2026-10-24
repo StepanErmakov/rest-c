@@ -232,6 +232,7 @@
     <div class="items">
       <button onclick="loadPreset('calc-ind')"><span class="method-tag post">POST</span>Расчёт по своему варианту</button>
       <button onclick="loadPreset('works-hist-ind')"><span class="method-tag get">GET</span>История по своему варианту</button>
+      <button onclick="loadPreset('run-tests-ind')"><span class="method-tag get">GET</span>Автотесты модуля (admin)</button>
     </div>
   </div>
 
@@ -352,12 +353,12 @@ const PRESETS = {
   "calc-ind": {
     method: "POST", url: API + "/works/calc-individual",
     body: JSON.stringify({
-      marketing_spend: 10000.0,
-      attributed_revenue: 25000.0,
-      agency_fee: 1500.0,
-      production_cost: 500.0,
-      period_days: 30
+      average_earnings: 60000,
+      vacation_days: 14
     }, null, 2)
+  },
+  "run-tests-ind": {
+    method: "GET", url: API + "/admin/run-tests-individual", body: ""
   },
   "works-hist-ind": {
     method: "GET", url: API + "/works/history-individual?limit=10", body: ""
