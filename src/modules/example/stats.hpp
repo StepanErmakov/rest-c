@@ -82,9 +82,9 @@ namespace Example {
             string result = o.str();
 
             // Записываем с явным datetime (в C++), а не через SQL-функцию.
-            db_run("INSERT INTO works (user_id,datetime,input_json,result_json) "
-                   "VALUES (?,?,?,?);",
-                   {to_string(uid), now_iso(), req.body, result});
+            db_run("INSERT INTO works (user_id,datetime,input_json,result_json,module) "
+                   "VALUES (?,?,?,?,?);",
+                   {to_string(uid), now_iso(), req.body, result, MODULE_EXAMPLE});
             res.set_content(result, "application/json");
         });
 
@@ -94,17 +94,13 @@ namespace Example {
             int uid = Auth::auth(req, role, name);
             if (!uid) { res.status = 401; return; }
 
-            int limit = MAX_HISTORY_LIMIT;
-            if (req.has_param("limit")) {
-                try { limit = min(stoi(req.get_param_value("limit")), limit); }
-                catch (...) {}
-            }
+            int limit = parse_history_limit(req.get_param_value("limit"));
 
             JArr arr;
             for (auto& r : db_all(
                 "SELECT id,datetime,input_json,result_json FROM works "
-                "WHERE user_id=" + to_string(uid) +
-                " ORDER BY id DESC LIMIT " + to_string(limit) + ";")) {
+                "WHERE user_id=? AND module=? ORDER BY id DESC LIMIT ?;",
+                {to_string(uid), MODULE_EXAMPLE, to_string(limit)})) {
                 JObj o;
                 o.int_("id", stoll(r[0]));
                 o.str("datetime", r[1]);

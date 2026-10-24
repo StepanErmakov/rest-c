@@ -36,24 +36,22 @@ namespace Public {
             JObj o;
             o.int_("total_accounts",          count("SELECT COUNT(*) FROM users;"));
             o.int_("successful_calculations", count("SELECT COUNT(*) FROM works;"));
+            // Неуспешные расчеты в works не сохраняются, поэтому считаем их
+            // по журналу: модуль пишет туда запись VALIDATION_ERROR.
             o.int_("failed_validations",
-                   count("SELECT COUNT(*) FROM works WHERE result_json LIKE '%error%';"));
+                   count("SELECT COUNT(*) FROM logs WHERE status='VALIDATION_ERROR';"));
             res.set_content(o.str(), "application/json");
         });
 
         // ─── 2. Публичная история ───────────────────────────────────────────
         svr.Get("/api/v1.1/history", [](const Request& req, Response& res) {
-            int limit = MAX_HISTORY_LIMIT;
-            if (req.has_param("limit")) {
-                try { limit = min(stoi(req.get_param_value("limit")), limit); }
-                catch (...) {}
-            }
+            int limit = parse_history_limit(req.get_param_value("limit"));
 
             JArr arr;
             for (auto& r : db_all(
                 "SELECT w.id,u.username,w.datetime,w.input_json,w.result_json "
                 "FROM works w JOIN users u ON w.user_id=u.id "
-                "ORDER BY w.id DESC LIMIT " + to_string(limit) + ";")) {
+                "ORDER BY w.id DESC LIMIT ?;", {to_string(limit)})) {
                 JObj o;
                 o.int_("id", stoll(r[0]));
                 o.str("username", r[1]);
@@ -68,10 +66,8 @@ namespace Public {
         // ─── 3. Логи (только admin/owner) ───────────────────────────────────
         svr.Get("/api/v1.1/admin/stats", [](const Request& req, Response& res) {
             string role, name;
-            if (!Auth::auth(req, role, name) || !Auth::admin(role)) {
-                res.status = 403;
-                return;
-            }
+            if (!Auth::auth(req, role, name)) { res.status = 401; return; }
+            if (!Auth::admin(role))           { res.status = 403; return; }
 
             JArr arr;
             for (auto& r : db_all(

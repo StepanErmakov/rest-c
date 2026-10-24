@@ -61,6 +61,17 @@ namespace Auth {
         return r == "admin" || r == "owner";
     }
 
+    // Может ли пользователь с ролью actor_role (логин actor) управлять учетной
+    // записью target с ролью target_role (смена пароля, удаление).
+    // Правило из ТЗ: себе можно всем; admin — себе и группе user; owner — всем.
+    inline bool can_manage(const string& actor, const string& actor_role,
+                           const string& target, const string& target_role) {
+        if (actor == target)     return true;
+        if (actor_role == "owner") return true;
+        if (actor_role == "admin") return target_role == "user";
+        return false;
+    }
+
     inline void init_routes(Server& svr) {
 
         // ─── 1. Регистрация ─────────────────────────────────────────────────
@@ -153,7 +164,8 @@ namespace Auth {
         // ─── 5. Список пользователей (admin/owner) ──────────────────────────
         svr.Get("/api/v1.1/auth/users", [](const Request& req, Response& res) {
             string role, name;
-            if (!auth(req, role, name) || !admin(role)) { res.status = 403; return; }
+            if (!auth(req, role, name)) { res.status = 401; return; }
+            if (!admin(role))           { res.status = 403; return; }
 
             JArr arr;
             for (auto& r : db_all("SELECT id,username,role FROM users;")) {
@@ -176,7 +188,13 @@ namespace Auth {
             string np = jget(req.body, "new_password");
 
             JObj o;
+            auto t = db_row("SELECT role FROM users WHERE username=?;", {target});
             if (target != name && !admin(role)) {
+                // Обычный пользователь не узнает даже о существовании чужой УЗ.
+                res.status = 403; o.str("error", "Forbidden");
+            } else if (t.empty()) {
+                res.status = 404; o.str("error", "User not found");
+            } else if (!can_manage(name, role, target, t[0])) {
                 res.status = 403; o.str("error", "Forbidden");
             } else if (np.size() < 4) {
                 res.status = 400; o.str("error", "Password too short");
@@ -194,9 +212,11 @@ namespace Auth {
                 // ─── 7. Удаление пользователя (admin/owner) ─────────────────────────
         svr.Delete("/api/v1.1/auth/users", [](const Request& req, Response& res) {
             string role, name;
-            if (!auth(req, role, name) || !admin(role)) { res.status = 403; return; }
+            if (!auth(req, role, name)) { res.status = 401; return; }
+            if (!admin(role))           { res.status = 403; return; }
 
             string target = jget(req.body, "username");
+            auto t = db_row("SELECT role FROM users WHERE username=?;", {target});
 
             JObj o;
             // Защита от удаления владельца и пустого имени.
@@ -205,9 +225,14 @@ namespace Auth {
                 o.str("error", "Invalid target");
             }
             // Проверяем, что пользователь существует, ДО удаления.
-            else if (db_row("SELECT id FROM users WHERE username=?;", {target}).empty()) {
+            else if (t.empty()) {
                 res.status = 404;
                 o.str("error", "User not found");
+            }
+            // admin не может удалить другого admin или owner.
+            else if (!can_manage(name, role, target, t[0])) {
+                res.status = 403;
+                o.str("error", "Forbidden");
             }
             else if (db_run("DELETE FROM users WHERE username=?;", {target})) {
                 write_log("SUCCESS", "User deleted: " + target);

@@ -92,8 +92,12 @@ inline std::vector<std::string> db_row(const std::string& sql,
 // ---------------------------------------------------------------------------
 // Запись в системный лог.
 // ---------------------------------------------------------------------------
+// Время записи задается явно: без него поле datetime оставалось пустым.
+inline std::string now_iso();
+
 inline void write_log(const std::string& status, const std::string& msg) {
-    db_run("INSERT INTO logs (status,message) VALUES (?,?);", {status, msg});
+    db_run("INSERT INTO logs (datetime,status,message) VALUES (?,?,?);",
+           {now_iso(), status, msg});
 }
 
 // ---------------------------------------------------------------------------
@@ -159,13 +163,19 @@ inline bool init_database() {
         "  user_id INTEGER,"
         "  datetime TEXT,"
         "  input_json TEXT,"
-        "  result_json TEXT);"
+        "  result_json TEXT,"
+        "  module TEXT DEFAULT 'example');"
         "CREATE TABLE IF NOT EXISTS logs ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "  datetime TEXT,"
         "  status TEXT,"
         "  message TEXT);",
         nullptr, nullptr, nullptr);
+
+    // Миграция БД, созданной до появления столбца module (ошибка «уже есть»
+    // при повторном запуске ожидаема и игнорируется).
+    sqlite3_exec(db, "ALTER TABLE works ADD COLUMN module TEXT DEFAULT 'example';",
+                 nullptr, nullptr, nullptr);
 
     const char* seeds[][3] = {
         {"owner1", "owner1", "owner"},
@@ -184,3 +194,18 @@ inline bool init_database() {
 // ---------------------------------------------------------------------------
 inline constexpr int TOKEN_TTL_SECONDS = 300;
 inline constexpr int MAX_HISTORY_LIMIT = 20;
+
+// Метка модуля в таблице works: истории модулей не смешиваются.
+inline const std::string MODULE_EXAMPLE    = "example";
+inline const std::string MODULE_INDIVIDUAL = "individual";
+
+// Параметр limit истории: число в диапазоне [1, MAX_HISTORY_LIMIT].
+// Отрицательное значение раньше давало SQL "LIMIT -1", то есть без ограничения.
+inline int parse_history_limit(const std::string& text) {
+    int limit = MAX_HISTORY_LIMIT;
+    try { if (!text.empty()) limit = std::stoi(text); }
+    catch (...) { limit = MAX_HISTORY_LIMIT; }
+    if (limit < 1) limit = 1;
+    if (limit > MAX_HISTORY_LIMIT) limit = MAX_HISTORY_LIMIT;
+    return limit;
+}
